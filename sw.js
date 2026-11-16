@@ -1,5 +1,5 @@
 // Incrémenter VERSION à chaque mise en ligne pour renouveler le cache.
-const VERSION = "courses-v9";
+const VERSION = "courses-v10";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
