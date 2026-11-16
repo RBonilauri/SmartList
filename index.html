@@ -198,6 +198,21 @@ dialog.menu::backdrop { background: rgba(0, 0, 0, .45); }
 .opt-btn:disabled { opacity: .4; cursor: default; }
 .opt-row .opt-btn.wide { flex: 1; }
 
+[hidden] { display: none !important; }
+.house-box { display: flex; flex-direction: column; gap: 10px; }
+.opt-input {
+  flex: 1; min-width: 0; min-height: 48px;
+  font: inherit; color: var(--ink);
+  background: var(--bg); border: 1.5px solid var(--line); border-radius: 12px;
+  padding: 0 12px;
+}
+.house-code {
+  margin: 0; padding: 12px; text-align: center;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 600;
+  background: var(--bg); border: 1.5px dashed var(--line); border-radius: 12px;
+  overflow-wrap: anywhere; user-select: all; -webkit-user-select: all;
+}
+
 .hint { color: var(--muted); padding: 10px 4px; margin: 0; }
 .hint[hidden] { display: none; }
 .add-inline {
@@ -292,6 +307,26 @@ body.locked main { opacity: .6; pointer-events: none; }
       <button class="opt-btn step" id="scale-up" type="button" aria-label="Agrandir le texte de 10 %">+</button>
     </div>
   </div>
+  <div class="opt" id="house" hidden>
+    <span class="opt-label">Foyer</span>
+    <div class="house-box" id="house-off">
+      <p class="opt-note">Tous les téléphones qui saisissent le même code partagent la même liste.</p>
+      <div class="opt-row">
+        <input class="opt-input" id="house-code" type="text" placeholder="Code du foyer" aria-label="Code du foyer" autocapitalize="none" autocomplete="off" spellcheck="false" maxlength="64">
+        <button class="opt-btn" id="house-join" type="button">Rejoindre</button>
+      </div>
+      <button class="opt-btn" id="house-create" type="button">Créer un foyer</button>
+    </div>
+    <div class="house-box" id="house-on" hidden>
+      <p class="opt-note">Code à saisir sur les autres téléphones du foyer :</p>
+      <p class="house-code" id="house-current"></p>
+      <div class="opt-row">
+        <button class="opt-btn wide" id="house-copy" type="button">Copier le code</button>
+        <button class="opt-btn wide" id="house-leave" type="button">Quitter</button>
+      </div>
+    </div>
+    <p class="opt-note" id="house-note" role="status"></p>
+  </div>
   <div class="opt">
     <span class="opt-label" id="lbl-data">Sauvegarde</span>
     <div class="opt-row" role="group" aria-labelledby="lbl-data">
@@ -315,6 +350,10 @@ body.locked main { opacity: .6; pointer-events: none; }
 <script>
 (function () {
   "use strict";
+  // Projet Supabase qui héberge les listes partagées. La clé publique ne donne accès
+  // qu'à la fonction sl_sync, qui exige le code du foyer. Laisser vide désactive le partage.
+  var SB_URL = "";
+  var SB_KEY = "";
   var CACHE_KEY = "courses-liste-v1";
   var $ = function (id) { return document.getElementById(id); };
   var els = {
@@ -375,19 +414,137 @@ body.locked main { opacity: .6; pointer-events: none; }
   function create(name, done) {
     done = !!done;
     if (mode === "sync") { var ref = col.doc(); dbWrite(ref.id, function () { return ref.set({ name: name, done: done }); }); }
-    else { items.set(newId(), { name: name, done: done }); saveCache(); render(); }
+    else { var id = newId(); items.set(id, { name: name, done: done }); mark(id, { name: name, done: done }); saveCache(); render(); }
   }
   function setDone(id, done) {
     if (mode === "sync") dbWrite(id, function () { return col.doc(id).update({ done: done }); });
-    else { var it = items.get(id); if (it) { it.done = done; saveCache(); render(); } }
+    else { var it = items.get(id); if (it) { it.done = done; mark(id, { name: it.name, done: done }); saveCache(); render(); } }
   }
   function remove(id) {
     if (mode === "sync") dbWrite(id, function () { return col.doc(id).delete(); });
-    else { items.delete(id); saveCache(); render(); }
+    else { items.delete(id); mark(id, { del: true }); saveCache(); render(); }
   }
   function restore(id, data) {
     if (mode === "sync") dbWrite(id, function () { return col.doc(id).set({ name: data.name, done: data.done }); });
-    else { items.set(id, { name: data.name, done: data.done }); saveCache(); render(); }
+    else { items.set(id, { name: data.name, done: data.done }); mark(id, { name: data.name, done: data.done }); saveCache(); render(); }
+  }
+
+  /* ---------- foyer : liste partagée via Supabase ---------- */
+  var HOUSE_KEY = "courses-foyer-v1";
+  var house = null;            // code du foyer, ou null
+  var pending = new Map();     // id -> { name, done } | { del: true } : modifications à envoyer
+  var syncing = false, syncAgain = false, syncFailed = false, syncTimer = 0, lastSync = 0;
+  var houseOn = !!(SB_URL && SB_KEY) && !(window.claude && typeof window.claude.use === "function");
+
+  function saveHouse() {
+    try {
+      if (house) localStorage.setItem(HOUSE_KEY, JSON.stringify({ code: house, pending: Array.from(pending) }));
+      else localStorage.removeItem(HOUSE_KEY);
+    } catch (e) {}
+  }
+  function loadHouse() {
+    if (!houseOn) return;
+    try {
+      var h = JSON.parse(localStorage.getItem(HOUSE_KEY) || "null");
+      if (h && typeof h.code === "string" && /^[a-z0-9-]{8,64}$/.test(h.code)) {
+        house = h.code;
+        (h.pending || []).forEach(function (p) { if (p && typeof p[0] === "string" && p[1]) pending.set(p[0], p[1]); });
+      }
+    } catch (e) {}
+  }
+  function mark(id, op) {
+    if (!house) return;
+    pending.set(id, op);
+    saveHouse();
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(sync, 250);
+  }
+  function snapshot() { return JSON.stringify(Array.from(items)); }
+
+  // Remplace la liste par celle du serveur, en gardant par-dessus ce qui n'est pas encore envoyé.
+  function applyServer(rows) {
+    var next = new Map();
+    rows.forEach(function (r) {
+      if (r && typeof r.id === "string" && typeof r.name === "string" && r.name.trim()) next.set(r.id, { name: r.name.slice(0, 80), done: !!r.done });
+    });
+    pending.forEach(function (op, id) {
+      if (op.del) next.delete(id); else next.set(id, { name: op.name, done: !!op.done });
+    });
+    // Deux téléphones ont pu ajouter le même ingrédient chacun de son côté : on garde le premier.
+    var seen = new Set(), dup = false;
+    Array.from(next.keys()).sort().forEach(function (id) {
+      var k = norm(next.get(id).name);
+      if (seen.has(k)) { next.delete(id); pending.set(id, { del: true }); dup = true; } else seen.add(k);
+    });
+    items.clear();
+    next.forEach(function (v, id) { items.set(id, v); });
+    saveCache();
+    return dup;
+  }
+
+  function sync() {
+    if (!house || !houseOn) return;
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    var code = house, sent = new Map(pending), ups = [], dels = [];
+    sent.forEach(function (op, id) {
+      if (op.del) dels.push(id); else ups.push({ id: id, name: op.name, done: !!op.done });
+    });
+    fetch(SB_URL + "/rest/v1/rpc/sl_sync", {
+      method: "POST",
+      headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_code: code, p_upserts: ups, p_deletes: dels })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (rows) {
+      if (house !== code || !Array.isArray(rows)) return;
+      sent.forEach(function (op, id) { if (pending.get(id) === op) pending.delete(id); });
+      var before = snapshot();
+      if (applyServer(rows)) syncAgain = true;
+      syncFailed = false; lastSync = Date.now();
+      if (snapshot() !== before) render();
+    }).catch(function () {
+      if (house === code) syncFailed = true;
+    }).then(function () {
+      syncing = false;
+      saveHouse();
+      els.status.textContent = statusText(countTodo());
+      houseUi();
+      if (syncAgain) { syncAgain = false; sync(); }
+    });
+  }
+  function countTodo() { var n = 0; items.forEach(function (v) { if (!v.done) n++; }); return n; }
+
+  function joinHouse(code) {
+    house = code; pending.clear(); syncFailed = false; lastSync = 0;
+    items.forEach(function (v, id) { pending.set(id, { name: v.name, done: v.done }); });
+    saveHouse(); houseUi(); render(); sync();
+  }
+  function leaveHouse() {
+    house = null; pending.clear(); syncFailed = false;
+    saveHouse(); houseUi(); render();
+  }
+  function newHouseCode() {
+    var abc = "abcdefghjkmnpqrstuvwxyz23456789", buf = new Uint8Array(12), out = "foyer";
+    crypto.getRandomValues(buf);
+    for (var i = 0; i < 12; i++) out += (i % 4 === 0 ? "-" : "") + abc[buf[i] % abc.length];
+    return out;
+  }
+  function houseUi(msg) {
+    var box = $("house");
+    if (!box) return;
+    box.hidden = !houseOn;
+    $("house-off").hidden = !!house;
+    $("house-on").hidden = !house;
+    $("house-current").textContent = house || "";
+    var note = msg || "";
+    if (!msg && house) {
+      note = syncFailed ? "Hors ligne ou serveur injoignable. Vos modifications partiront dès que possible."
+        : lastSync ? "Synchronisé à " + new Date(lastSync).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) + "."
+        : "Connexion au foyer…";
+    }
+    $("house-note").textContent = note;
   }
 
   function checkAll() {
@@ -422,6 +579,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     var n = nTodo === 0 ? "Rien à acheter" : nTodo + " à acheter";
     if (mode === "readonly") return n + " · lecture seule";
     if (stale) return n + " · peut ne pas être à jour";
+    if (house) return n + (syncFailed ? " · foyer hors ligne" : " · foyer");
     return n;
   }
 
@@ -643,6 +801,28 @@ body.locked main { opacity: .6; pointer-events: none; }
     r.readAsText(f);
   });
 
+  $("house-create").addEventListener("click", function () { joinHouse(newHouseCode()); });
+  $("house-join").addEventListener("click", function () {
+    var code = $("house-code").value.toLowerCase().replace(/\s+/g, "");
+    if (!/^[a-z0-9-]{8,64}$/.test(code)) { houseUi("Code invalide : 8 caractères au moins, lettres, chiffres et tirets."); return; }
+    $("house-code").value = "";
+    joinHouse(code);
+  });
+  $("house-copy").addEventListener("click", function () {
+    var btn = this;
+    navigator.clipboard.writeText(house || "").then(function () {
+      btn.textContent = "Code copié";
+      setTimeout(function () { btn.textContent = "Copier le code"; }, 2000);
+    }).catch(function () { houseUi("Copie impossible : sélectionnez le code à la main."); });
+  });
+  $("house-leave").addEventListener("click", function () {
+    leaveHouse();
+    houseUi("Foyer quitté. La liste reste sur ce téléphone.");
+  });
+  setInterval(function () { if (house && document.visibilityState === "visible") sync(); }, 5000);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") sync(); });
+  window.addEventListener("online", sync);
+
   /* ---------- démarrage ---------- */
   function startDb(db) {
     col = db.collection("items");
@@ -664,7 +844,10 @@ body.locked main { opacity: .6; pointer-events: none; }
   }
 
   loadCache();
+  loadHouse();
+  houseUi();
   render();
+  sync();
   if (hosted) {
     window.claude.use("db").then(function (db) {
       if (db) startDb(db); else setMode("local");
