@@ -17,24 +17,30 @@ create table if not exists public.sl_items (
 alter table public.sl_items enable row level security;
 revoke all on public.sl_items from anon, authenticated;
 
--- Nom de chaque foyer, modifiable par tous ses membres.
+-- Nom et couleur de chaque foyer, modifiables par tous ses membres.
 create table if not exists public.sl_households (
   code       text        primary key,
-  name       text        not null check (char_length(name) between 1 and 40),
+  name       text        check (char_length(name) between 1 and 40),
+  color      text        check (color ~ '^[a-z]{1,20}$'),
   updated_at timestamptz not null default now()
 );
+-- Mise à niveau d'une base créée avec une version précédente de ce script.
+alter table public.sl_households add column if not exists color text check (color ~ '^[a-z]{1,20}$');
+alter table public.sl_households alter column name drop not null;
 
 alter table public.sl_households enable row level security;
 revoke all on public.sl_households from anon, authenticated;
 
--- Applique les modifications d'un téléphone (et un éventuel nouveau nom),
--- puis renvoie le nom et la liste du foyer.
+-- Applique les modifications d'un téléphone (et un éventuel nouveau nom ou
+-- une nouvelle couleur), puis renvoie le nom, la couleur et la liste du foyer.
 drop function if exists public.sl_sync(text, jsonb, jsonb);
+drop function if exists public.sl_sync(text, jsonb, jsonb, text);
 create or replace function public.sl_sync(
   p_code    text,
   p_upserts jsonb default '[]'::jsonb,
   p_deletes jsonb default '[]'::jsonb,
-  p_name    text  default null
+  p_name    text  default null,
+  p_color   text  default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -50,9 +56,15 @@ begin
     raise exception 'trop de modifications en une fois';
   end if;
 
-  if coalesce(btrim(p_name), '') <> '' then
-    insert into sl_households (code, name) values (p_code, left(btrim(p_name), 40))
-    on conflict (code) do update set name = excluded.name, updated_at = now();
+  if coalesce(btrim(p_name), '') <> '' or coalesce(p_color, '') ~ '^[a-z]{1,20}$' then
+    insert into sl_households (code, name, color)
+    values (p_code,
+            nullif(left(btrim(coalesce(p_name, '')), 40), ''),
+            case when p_color ~ '^[a-z]{1,20}$' then p_color end)
+    on conflict (code) do update
+       set name  = coalesce(excluded.name,  sl_households.name),
+           color = coalesce(excluded.color, sl_households.color),
+           updated_at = now();
   end if;
 
   delete from sl_items
@@ -81,11 +93,12 @@ begin
     from sl_items
    where household = p_code;
   return jsonb_build_object(
-    'name',  (select name from sl_households where code = p_code),
+    'name',  (select name  from sl_households where code = p_code),
+    'color', (select color from sl_households where code = p_code),
     'items', result
   );
 end;
 $$;
 
-revoke all on function public.sl_sync(text, jsonb, jsonb, text) from public;
-grant execute on function public.sl_sync(text, jsonb, jsonb, text) to anon, authenticated;
+revoke all on function public.sl_sync(text, jsonb, jsonb, text, text) from public;
+grant execute on function public.sl_sync(text, jsonb, jsonb, text, text) to anon, authenticated;

@@ -353,7 +353,7 @@ body.locked main { opacity: .6; pointer-events: none; }
       <button class="opt-btn" id="cur-rename" type="button">Renommer</button>
     </div>
     <div class="swatches" id="swatches" role="group" aria-label="Couleur de la liste"></div>
-    <p class="opt-note" id="cur-shared-note" hidden>Liste partagée : son nom et son contenu sont communs à tout le foyer. Code à saisir sur les autres téléphones :</p>
+    <p class="opt-note" id="cur-shared-note" hidden>Liste partagée : son nom, sa couleur et son contenu sont communs à tout le foyer. Code à saisir sur les autres téléphones :</p>
     <p class="house-code" id="house-current" hidden></p>
     <div class="opt-row">
       <button class="opt-btn wide" id="house-copy" type="button" hidden>Copier le code</button>
@@ -460,7 +460,7 @@ body.locked main { opacity: .6; pointer-events: none; }
   /* ---------- listes et stockage local ---------- */
   function makeList(name, code) {
     return { id: newId(), name: name, code: code || null, color: "vert", items: new Map(), pending: new Map(),
-             pendingName: null, failed: false, error: null, lastSync: 0, syncing: false, again: false };
+             pendingName: null, pendingColor: null, failed: false, error: null, lastSync: 0, syncing: false, again: false };
   }
   function setCurrent(l) { current = l; items = l.items; }
   function fill(map, pairs) {
@@ -481,7 +481,8 @@ body.locked main { opacity: .6; pointer-events: none; }
           if (typeof r.id === "string" && r.id) l.id = r.id;
           if (typeof r.color === "string") l.color = r.color;
           fill(l.items, r.items);
-          if (l.code) { fillPending(l.pending, r.pending); if (typeof r.pendingName === "string" && r.pendingName) l.pendingName = r.pendingName; }
+          if (l.code) { fillPending(l.pending, r.pending); if (typeof r.pendingName === "string" && r.pendingName) l.pendingName = r.pendingName;
+                        if (typeof r.pendingColor === "string" && r.pendingColor) l.pendingColor = r.pendingColor; }
           lists.push(l);
         });
         if (lists.length) setCurrent(lists.filter(function (l) { return l.id === raw.current; })[0] || lists[0]);
@@ -506,7 +507,7 @@ body.locked main { opacity: .6; pointer-events: none; }
       localStorage.setItem(STORE_KEY, JSON.stringify({
         current: current.id,
         lists: lists.map(function (l) {
-          return { id: l.id, name: l.name, code: l.code, color: l.color, items: Array.from(l.items), pending: Array.from(l.pending), pendingName: l.pendingName };
+          return { id: l.id, name: l.name, code: l.code, color: l.color, items: Array.from(l.items), pending: Array.from(l.pending), pendingName: l.pendingName, pendingColor: l.pendingColor };
         })
       }));
     } catch (e) {}
@@ -557,7 +558,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     clearTimeout(syncTimer);
     syncTimer = setTimeout(function () { sync(l); }, 250);
   }
-  function snapshot(l) { return l.name + "\n" + JSON.stringify(Array.from(l.items)); }
+  function snapshot(l) { return l.name + "\n" + l.color + "\n" + JSON.stringify(Array.from(l.items)); }
 
   // Remplace le contenu par celui du serveur, en gardant par-dessus ce qui n'est pas encore envoyé.
   function applyServer(l, rows) {
@@ -583,12 +584,13 @@ body.locked main { opacity: .6; pointer-events: none; }
     if (!l || !l.code || !houseOn || lists.indexOf(l) === -1) return;
     if (l.syncing) { l.again = true; return; }
     l.syncing = true;
-    var sent = new Map(l.pending), sentName = l.pendingName, ups = [], dels = [];
+    var sent = new Map(l.pending), sentName = l.pendingName, sentColor = l.pendingColor, ups = [], dels = [];
     sent.forEach(function (op, id) {
       if (op.del) dels.push(id); else ups.push({ id: id, name: op.name, done: !!op.done });
     });
     var body = { p_code: l.code, p_upserts: ups, p_deletes: dels };
     if (sentName) body.p_name = sentName;
+    if (sentColor) body.p_color = sentColor;
     fetch(SB_URL + "/rest/v1/rpc/sl_sync", {
       method: "POST",
       headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
@@ -607,9 +609,11 @@ body.locked main { opacity: .6; pointer-events: none; }
       sent.forEach(function (op, id) { if (l.pending.get(id) === op) l.pending.delete(id); });
       if (sentName && l.pendingName === sentName) l.pendingName = null;
       if (!l.pendingName && res && typeof res.name === "string" && res.name.trim()) l.name = res.name.slice(0, 40);
+      if (sentColor && l.pendingColor === sentColor) l.pendingColor = null;
+      if (!l.pendingColor && res && COLORS.some(function (c) { return c.id === res.color; })) l.color = res.color;
       if (applyServer(l, rows)) l.again = true;
       l.failed = false; l.error = null; l.lastSync = Date.now();
-      if (snapshot(l) !== before) { if (l === current) render(); menuUi(); }
+      if (snapshot(l) !== before) { if (l === current) { applyTint(); render(); } menuUi(); }
     }).catch(function (e) {
       l.failed = true;
       l.error = e && e.status ? e : null;
@@ -654,6 +658,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     l.code = newHouseCode();
     l.items.forEach(function (v, id) { l.pending.set(id, { name: v.name, done: v.done }); });
     l.pendingName = l.name;
+    l.pendingColor = l.color;
     saveCache(); render(); menuUi();
     sync(l);
   }
@@ -722,7 +727,12 @@ body.locked main { opacity: .6; pointer-events: none; }
       b.type = "button"; b.className = "swatch"; paint(b, c);
       b.setAttribute("aria-label", c.label);
       b.setAttribute("aria-pressed", String(c === cur));
-      b.addEventListener("click", function () { current.color = c.id; saveCache(); applyTint(); menuUi(); });
+      b.addEventListener("click", function () {
+        current.color = c.id;
+        if (current.code) current.pendingColor = c.id;
+        saveCache(); applyTint(); menuUi();
+        sync(current);
+      });
       return b;
     }));
     if (document.activeElement !== $("cur-name")) $("cur-name").value = current.name;
@@ -1031,7 +1041,7 @@ body.locked main { opacity: .6; pointer-events: none; }
   });
   function syncVisible() {
     if (document.visibilityState !== "visible") return;
-    lists.forEach(function (l) { if (l === current || l.pending.size || l.pendingName) sync(l); });
+    lists.forEach(function (l) { if (l === current || l.pending.size || l.pendingName || l.pendingColor) sync(l); });
   }
   setInterval(syncVisible, 5000);
   document.addEventListener("visibilitychange", syncVisible);
