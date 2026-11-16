@@ -17,11 +17,24 @@ create table if not exists public.sl_items (
 alter table public.sl_items enable row level security;
 revoke all on public.sl_items from anon, authenticated;
 
--- Applique les modifications d'un téléphone puis renvoie la liste du foyer.
+-- Nom de chaque foyer, modifiable par tous ses membres.
+create table if not exists public.sl_households (
+  code       text        primary key,
+  name       text        not null check (char_length(name) between 1 and 40),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.sl_households enable row level security;
+revoke all on public.sl_households from anon, authenticated;
+
+-- Applique les modifications d'un téléphone (et un éventuel nouveau nom),
+-- puis renvoie le nom et la liste du foyer.
+drop function if exists public.sl_sync(text, jsonb, jsonb);
 create or replace function public.sl_sync(
   p_code    text,
   p_upserts jsonb default '[]'::jsonb,
-  p_deletes jsonb default '[]'::jsonb
+  p_deletes jsonb default '[]'::jsonb,
+  p_name    text  default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -35,6 +48,11 @@ begin
   end if;
   if jsonb_array_length(p_upserts) > 500 or jsonb_array_length(p_deletes) > 500 then
     raise exception 'trop de modifications en une fois';
+  end if;
+
+  if coalesce(btrim(p_name), '') <> '' then
+    insert into sl_households (code, name) values (p_code, left(btrim(p_name), 40))
+    on conflict (code) do update set name = excluded.name, updated_at = now();
   end if;
 
   delete from sl_items
@@ -62,9 +80,12 @@ begin
     into result
     from sl_items
    where household = p_code;
-  return result;
+  return jsonb_build_object(
+    'name',  (select name from sl_households where code = p_code),
+    'items', result
+  );
 end;
 $$;
 
-revoke all on function public.sl_sync(text, jsonb, jsonb) from public;
-grant execute on function public.sl_sync(text, jsonb, jsonb) to anon, authenticated;
+revoke all on function public.sl_sync(text, jsonb, jsonb, text) from public;
+grant execute on function public.sl_sync(text, jsonb, jsonb, text) to anon, authenticated;

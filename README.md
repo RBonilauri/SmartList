@@ -6,6 +6,7 @@ Liste de courses en un seul fichier HTML, installable sur téléphone (PWA) et u
 - Recherche insensible aux accents (`epinard` trouve « Épinards »).
 - Options (menu burger) : thème jour / nuit / auto, taille du texte, export et import JSON.
 - Données enregistrées dans le `localStorage` du navigateur ; vider les données du site efface la liste.
+- Plusieurs listes (menu burger → Mes listes) : locales ou partagées, renommables.
 - Partage facultatif par code de foyer : les téléphones qui saisissent le même code voient la même liste (actualisée toutes les 5 secondes, modifications hors ligne envoyées au retour du réseau).
 
 ## Partage par foyer (Supabase)
