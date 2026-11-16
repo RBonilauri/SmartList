@@ -470,6 +470,31 @@ body.locked main { opacity: .6; pointer-events: none; }
     return String(s).toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae")
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
   }
+  // Clé de doublon : on ignore en plus les emojis et la ponctuation, pour que
+  // « Bacon » et « Bacon 🥓 » comptent comme le même ingrédient.
+  function dupKey(s) {
+    var n = norm(s), k = n.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    return k || n;
+  }
+  // Fusionne les doublons d'une liste. On garde le nom le plus complet (donc celui avec emoji),
+  // et l'ingrédient reste à acheter si l'un des doublons l'était. Même résultat sur tous les téléphones.
+  function dedupe(map, pending) {
+    var groups = new Map(), changed = false;
+    map.forEach(function (v, id) {
+      var k = dupKey(v.name);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(id);
+    });
+    groups.forEach(function (ids) {
+      if (ids.length < 2) return;
+      ids.sort(function (a, b) { return map.get(b).name.length - map.get(a).name.length || (a < b ? -1 : 1); });
+      var keep = map.get(ids[0]), done = ids.every(function (id) { return map.get(id).done; });
+      if (keep.done !== done) { keep.done = done; if (pending) pending.set(ids[0], { name: keep.name, done: done }); }
+      ids.slice(1).forEach(function (id) { map.delete(id); if (pending) pending.set(id, { del: true }); });
+      changed = true;
+    });
+    return changed;
+  }
   function clean(s) {
     s = String(s).replace(/\s+/g, " ").trim().slice(0, 80);
     return s ? s.charAt(0).toLocaleUpperCase("fr") + s.slice(1) : "";
@@ -510,6 +535,7 @@ body.locked main { opacity: .6; pointer-events: none; }
       }
     } catch (e) {}
     if (!lists.length) migrate();
+    lists.forEach(function (l) { dedupe(l.items, l.code ? l.pending : null); });
   }
   // Reprend la liste unique des premières versions, et son foyer s'il y en avait un.
   function migrate() {
@@ -594,12 +620,8 @@ body.locked main { opacity: .6; pointer-events: none; }
     l.pending.forEach(function (op, id) {
       if (op.del) next.delete(id); else next.set(id, { name: op.name, done: !!op.done });
     });
-    // Deux téléphones ont pu ajouter le même ingrédient chacun de son côté : on garde le premier.
-    var seen = new Set(), dup = false;
-    Array.from(next.keys()).sort().forEach(function (id) {
-      var k = norm(next.get(id).name);
-      if (seen.has(k)) { next.delete(id); l.pending.set(id, { del: true }); dup = true; } else seen.add(k);
-    });
+    // Deux téléphones ont pu ajouter le même ingrédient chacun de son côté.
+    var dup = dedupe(next, l.pending);
     l.items.clear();
     next.forEach(function (v, id) { l.items.set(id, v); });
     return dup;
@@ -787,8 +809,8 @@ body.locked main { opacity: .6; pointer-events: none; }
     if (!canEdit()) return;
     var name = clean(raw);
     if (!name) return;
-    var key = norm(name), found = null;
-    items.forEach(function (v, id) { if (!found && norm(v.name) === key) found = { id: id, v: v }; });
+    var key = dupKey(name), found = null;
+    items.forEach(function (v, id) { if (!found && dupKey(v.name) === key) found = { id: id, v: v }; });
     if (found && found.v.done) { setDone(found.id, false); toast(found.v.name + " remis dans la liste"); }
     else if (found) { toast(found.v.name + " est déjà dans la liste"); }
     else { create(name); }
@@ -830,12 +852,12 @@ body.locked main { opacity: .6; pointer-events: none; }
     // Pendant un renommage, on ne reconstruit pas la liste sous les doigts.
     if (editingId) { if (items.has(editingId)) return; editingId = null; document.body.classList.remove("renaming"); }
     var typed = panelMode ? els.field.value : "";
-    var q = norm(typed);
+    var q = norm(typed), qKey = q ? dupKey(typed) : "";
     var all = [], exact = false, totalTodo = 0;
     items.forEach(function (v, id) {
       if (!v.done) totalTodo++;
       var k = norm(v.name);
-      if (q && k === q) exact = true;
+      if (q && dupKey(v.name) === qKey) exact = true;
       if (!q || k.indexOf(q) !== -1) all.push({ id: id, name: v.name, done: v.done });
     });
     all.sort(function (a, b) { return collator.compare(a.name, b.name); });
@@ -965,8 +987,8 @@ body.locked main { opacity: .6; pointer-events: none; }
     if (!it || !inp) { cancelEdit(); return; }
     var name = clean(inp.value);
     if (!name || name === it.name) { cancelEdit(); return; }
-    var key = norm(name), clash = null;
-    items.forEach(function (v, other) { if (other !== id && norm(v.name) === key) clash = v; });
+    var key = dupKey(name), clash = null;
+    items.forEach(function (v, other) { if (other !== id && dupKey(v.name) === key) clash = v; });
     if (clash) {
       toast("« " + clash.name + " » existe déjà" + (clash.done ? " (dans le panier)" : " dans la liste"));
       if (stay) inp.focus(); else cancelEdit();
@@ -1087,13 +1109,13 @@ body.locked main { opacity: .6; pointer-events: none; }
     var arr = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : null);
     if (!arr) { toast(bad); return; }
     var byKey = new Map();
-    items.forEach(function (v, id) { byKey.set(norm(v.name), { id: id, done: v.done }); });
+    items.forEach(function (v, id) { byKey.set(dupKey(v.name), { id: id, done: v.done }); });
     var seen = 0, added = 0;
     arr.slice(0, 2000).forEach(function (x) {
       var raw = typeof x === "string" ? x : (x && typeof x.name === "string" ? x.name : "");
       var name = clean(raw);
       if (!name) return;
-      var done = !!(x && x.done), k = norm(name), ex = byKey.get(k);
+      var done = !!(x && x.done), k = dupKey(name), ex = byKey.get(k);
       seen++;
       if (!ex) { create(name, done); byKey.set(k, { id: null, done: done }); added++; }
       else if (ex.id && ex.done !== done) setDone(ex.id, done);
