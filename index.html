@@ -183,7 +183,7 @@ ul:empty { display: none; }
   padding: 13px 4px 13px 14px; min-height: 54px;
   cursor: pointer;
 }
-.row input {
+.row input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
   width: 26px; height: 26px; flex: none; margin: 0;
   border: 2px solid var(--muted); border-radius: 50%;
@@ -191,19 +191,28 @@ ul:empty { display: none; }
   cursor: pointer;
   transition: background-color .15s, border-color .15s;
 }
-.row input:checked {
+.row input[type="checkbox"]:checked {
   background-color: var(--accent); border-color: var(--accent);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
 }
 .row label { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .row.armed { background: var(--bg); }
-.row.editing label { display: none; }
-.edit {
-  flex: 1; min-width: 0; min-height: 40px;
-  margin: 7px 0 7px 12px; padding: 8px 10px;
+.row.editing label, .row.editing .del { display: none; }
+.row.editing { align-items: center; gap: 8px; padding: 7px 8px 7px 10px; min-height: 54px; }
+.row .edit {
+  flex: 1; min-width: 0; height: 40px; padding: 0 12px;
   font: inherit; font-weight: 500; color: var(--ink);
-  background: var(--bg); border: 1.5px solid var(--accent); border-radius: 10px;
+  background: var(--bg); border: 2px solid var(--accent); border-radius: 10px;
 }
+.row .edit:focus { outline: none; }
+.ok {
+  flex: none; width: 40px; height: 40px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); cursor: pointer;
+}
+.ok svg { width: 20px; height: 20px; }
+body.renaming .fab { display: none; }
 .tip { font-size: .84rem; margin-top: 18px; }
 .name { overflow-wrap: anywhere; font-weight: 500; }
 .done .name { text-decoration: line-through; color: var(--muted); font-weight: 400; }
@@ -819,7 +828,7 @@ body.locked main { opacity: .6; pointer-events: none; }
 
   function render() {
     // Pendant un renommage, on ne reconstruit pas la liste sous les doigts.
-    if (editingId) { if (items.has(editingId)) return; editingId = null; }
+    if (editingId) { if (items.has(editingId)) return; editingId = null; document.body.classList.remove("renaming"); }
     var typed = panelMode ? els.field.value : "";
     var q = norm(typed);
     var all = [], exact = false, totalTodo = 0;
@@ -931,15 +940,24 @@ body.locked main { opacity: .6; pointer-events: none; }
     inp.className = "edit"; inp.type = "text"; inp.maxLength = 80; inp.value = it.name;
     inp.setAttribute("aria-label", "Renommer " + it.name);
     inp.setAttribute("enterkeyhint", "done"); inp.setAttribute("autocomplete", "off");
-    li.insertBefore(inp, li.querySelector(".del"));
+    var ok = document.createElement("button");
+    ok.type = "button"; ok.className = "ok";
+    ok.setAttribute("aria-label", "Valider le nouveau nom");
+    ok.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
+    ok.addEventListener("click", function () { finishEdit(true); });
+    li.append(inp, ok);
+    document.body.classList.add("renaming");
     inp.addEventListener("keydown", function (e) {
       if (e.key === "Enter") { e.preventDefault(); finishEdit(true); }
       else if (e.key === "Escape") cancelEdit();
     });
-    inp.addEventListener("blur", function () { setTimeout(function () { if (editingId === id && document.activeElement !== inp) finishEdit(false); }, 0); });
-    inp.focus(); inp.select();
+    inp.addEventListener("blur", function () { setTimeout(function () { var a = document.activeElement; if (editingId === id && a !== inp && !(a && a.classList.contains("ok"))) finishEdit(false); }, 0); });
+    inp.focus();
+    try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {}
+    setTimeout(function () { if (inp.isConnected) inp.scrollIntoView({ block: "center", behavior: "smooth" }); }, 300);
   }
-  function cancelEdit() { editingId = null; render(); }
+  function endEdit() { editingId = null; document.body.classList.remove("renaming"); }
+  function cancelEdit() { endEdit(); render(); }
   // stay : en cas de nom déjà pris, on reste en édition (validation au clavier) au lieu d'annuler.
   function finishEdit(stay) {
     var id = editingId, it = items.get(id), inp = document.querySelector(".row.editing .edit");
@@ -951,10 +969,10 @@ body.locked main { opacity: .6; pointer-events: none; }
     items.forEach(function (v, other) { if (other !== id && norm(v.name) === key) clash = v; });
     if (clash) {
       toast("« " + clash.name + " » existe déjà" + (clash.done ? " (dans le panier)" : " dans la liste"));
-      if (stay) { inp.focus(); inp.select(); } else cancelEdit();
+      if (stay) inp.focus(); else cancelEdit();
       return;
     }
-    editingId = null;
+    endEdit();
     rename(id, name);
   }
   function onPressStart(e) {
