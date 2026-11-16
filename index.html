@@ -55,6 +55,41 @@
   color-scheme: dark;
 }
 
+/* Couleur de la liste affichée : toute la palette dérive d'une teinte (--h) et d'une intensité (--k, 0 pour le gris). */
+.dot, .swatch { background: var(--accent); }
+@supports (color: oklch(0.5 0.1 100)) {
+  :root[data-tint] {
+    --bg: oklch(0.94 calc(0.05 * var(--k)) var(--h));
+    --surface: oklch(0.992 calc(0.008 * var(--k)) var(--h));
+    --ink: oklch(0.25 calc(0.04 * var(--k)) var(--h));
+    --muted: oklch(0.49 calc(0.04 * var(--k)) var(--h));
+    --line: oklch(0.87 calc(0.045 * var(--k)) var(--h));
+    --accent: oklch(0.5 calc(0.13 * var(--k)) var(--h));
+    --accent-ink: #FFFFFF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-tint]:not([data-theme="light"]) {
+      --bg: oklch(0.2 calc(0.04 * var(--k)) var(--h));
+      --surface: oklch(0.26 calc(0.045 * var(--k)) var(--h));
+      --ink: oklch(0.94 calc(0.015 * var(--k)) var(--h));
+      --muted: oklch(0.71 calc(0.04 * var(--k)) var(--h));
+      --line: oklch(0.35 calc(0.045 * var(--k)) var(--h));
+      --accent: oklch(0.8 calc(0.11 * var(--k)) var(--h));
+      --accent-ink: oklch(0.2 calc(0.04 * var(--k)) var(--h));
+    }
+  }
+  :root[data-tint][data-theme="dark"] {
+    --bg: oklch(0.2 calc(0.04 * var(--k)) var(--h));
+    --surface: oklch(0.26 calc(0.045 * var(--k)) var(--h));
+    --ink: oklch(0.94 calc(0.015 * var(--k)) var(--h));
+    --muted: oklch(0.71 calc(0.04 * var(--k)) var(--h));
+    --line: oklch(0.35 calc(0.045 * var(--k)) var(--h));
+    --accent: oklch(0.8 calc(0.11 * var(--k)) var(--h));
+    --accent-ink: oklch(0.2 calc(0.04 * var(--k)) var(--h));
+  }
+  .dot, .swatch { background: oklch(0.66 calc(0.15 * var(--k)) var(--h)); }
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
@@ -214,8 +249,16 @@ dialog.menu::backdrop { background: rgba(0, 0, 0, .45); }
 }
 
 .list-nav { display: flex; flex-direction: column; gap: 8px; }
-.list-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; }
-.list-item span:first-child { overflow-wrap: anywhere; }
+.list-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; }
+.list-item .lname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.dot { flex: none; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); }
+.swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; }
+.swatch {
+  width: 44px; height: 44px; padding: 0; border-radius: 50%;
+  border: 3px solid var(--surface);
+  cursor: pointer;
+}
+.swatch[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--ink); }
 .tag { flex: none; font-size: .78rem; font-weight: 500; opacity: .75; }
 
 .hint { color: var(--muted); padding: 10px 4px; margin: 0; }
@@ -309,6 +352,7 @@ body.locked main { opacity: .6; pointer-events: none; }
       <input class="opt-input" id="cur-name" type="text" aria-label="Nom de la liste affichée" autocomplete="off" maxlength="40">
       <button class="opt-btn" id="cur-rename" type="button">Renommer</button>
     </div>
+    <div class="swatches" id="swatches" role="group" aria-label="Couleur de la liste"></div>
     <p class="opt-note" id="cur-shared-note" hidden>Liste partagée : son nom et son contenu sont communs à tout le foyer. Code à saisir sur les autres téléphones :</p>
     <p class="house-code" id="house-current" hidden></p>
     <div class="opt-row">
@@ -373,6 +417,16 @@ body.locked main { opacity: .6; pointer-events: none; }
   var SB_KEY = "sb_publishable_cPAAWorrX8bGc-_xazaf5w_QBYVjs0a";
   var STORE_KEY = "smartlist-v2";
   var CODE_RE = /^[a-z0-9-]{8,64}$/;
+  // Dix couleurs de liste : teinte (h) et intensité (k) dans l'espace oklch.
+  var COLORS = [
+    { id: "vert", label: "Vert", h: 155, k: 1 }, { id: "turquoise", label: "Turquoise", h: 195, k: 1 },
+    { id: "bleu", label: "Bleu", h: 245, k: 1 }, { id: "indigo", label: "Indigo", h: 278, k: 1 },
+    { id: "violet", label: "Violet", h: 310, k: 1 }, { id: "rose", label: "Rose", h: 350, k: 1 },
+    { id: "rouge", label: "Rouge", h: 25, k: 1 }, { id: "orange", label: "Orange", h: 58, k: 1 },
+    { id: "jaune", label: "Jaune", h: 95, k: 1 }, { id: "gris", label: "Gris", h: 155, k: 0 }
+  ];
+  function colorOf(l) { return COLORS.filter(function (c) { return c.id === l.color; })[0] || COLORS[0]; }
+  function paint(el, c) { el.style.setProperty("--h", c.h); el.style.setProperty("--k", c.k); }
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     status: $("status"), panel: $("panel"), field: $("field"), submit: $("btn-submit"),
@@ -405,7 +459,7 @@ body.locked main { opacity: .6; pointer-events: none; }
 
   /* ---------- listes et stockage local ---------- */
   function makeList(name, code) {
-    return { id: newId(), name: name, code: code || null, items: new Map(), pending: new Map(),
+    return { id: newId(), name: name, code: code || null, color: "vert", items: new Map(), pending: new Map(),
              pendingName: null, failed: false, error: null, lastSync: 0, syncing: false, again: false };
   }
   function setCurrent(l) { current = l; items = l.items; }
@@ -425,6 +479,7 @@ body.locked main { opacity: .6; pointer-events: none; }
           if (!r || typeof r.name !== "string") return;
           var l = makeList(r.name.slice(0, 40) || "Liste", typeof r.code === "string" && CODE_RE.test(r.code) ? r.code : null);
           if (typeof r.id === "string" && r.id) l.id = r.id;
+          if (typeof r.color === "string") l.color = r.color;
           fill(l.items, r.items);
           if (l.code) { fillPending(l.pending, r.pending); if (typeof r.pendingName === "string" && r.pendingName) l.pendingName = r.pendingName; }
           lists.push(l);
@@ -451,7 +506,7 @@ body.locked main { opacity: .6; pointer-events: none; }
       localStorage.setItem(STORE_KEY, JSON.stringify({
         current: current.id,
         lists: lists.map(function (l) {
-          return { id: l.id, name: l.name, code: l.code, items: Array.from(l.items), pending: Array.from(l.pending), pendingName: l.pendingName };
+          return { id: l.id, name: l.name, code: l.code, color: l.color, items: Array.from(l.items), pending: Array.from(l.pending), pendingName: l.pendingName };
         })
       }));
     } catch (e) {}
@@ -583,7 +638,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     setCurrent(l);
     saveCache();
     if (panelMode) openPanel(panelMode);
-    render(); menuUi();
+    applyTint(); render(); menuUi();
     if (old && old !== l && old.pending.size) sync(old);
     sync(l);
   }
@@ -607,13 +662,25 @@ body.locked main { opacity: .6; pointer-events: none; }
     lists.splice(i, 1);
     if (!lists.length) lists.push(makeList("Ma liste"));
     setCurrent(lists[Math.max(0, i - 1)]);
-    saveCache(); render(); menuUi();
+    saveCache(); applyTint(); render(); menuUi();
     sync(current);
   }
   function joinHouse(code) {
     var l = lists.filter(function (x) { return x.code === code; })[0];
     if (!l) { l = makeList("Foyer", code); lists.push(l); }
     switchTo(l);
+  }
+
+  // Applique la couleur de la liste affichée à toute la page, barre d'état comprise.
+  function applyTint() {
+    var root = document.documentElement;
+    paint(root, colorOf(current));
+    root.setAttribute("data-tint", "");
+    themeColor();
+  }
+  function themeColor() {
+    var bg = getComputedStyle(document.body).backgroundColor;
+    Array.prototype.forEach.call(document.querySelectorAll('meta[name="theme-color"]'), function (m) { m.content = bg; });
   }
 
   var delTimer = 0;
@@ -640,11 +707,22 @@ body.locked main { opacity: .6; pointer-events: none; }
       var b = document.createElement("button");
       b.type = "button"; b.className = "opt-btn list-item";
       b.setAttribute("aria-pressed", String(l === current));
+      var d = document.createElement("span");
+      d.className = "dot"; paint(d, colorOf(l));
       var n = document.createElement("span");
-      n.textContent = l.name;
-      b.append(n);
+      n.className = "lname"; n.textContent = l.name;
+      b.append(d, n);
       if (l.code) { var t = document.createElement("span"); t.className = "tag"; t.textContent = "partagée"; b.append(t); }
       b.addEventListener("click", function () { switchTo(l); closeMenu(); });
+      return b;
+    }));
+    var sw = $("swatches"), cur = colorOf(current);
+    sw.replaceChildren.apply(sw, COLORS.map(function (c) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "swatch"; paint(b, c);
+      b.setAttribute("aria-label", c.label);
+      b.setAttribute("aria-pressed", String(c === cur));
+      b.addEventListener("click", function () { current.color = c.id; saveCache(); applyTint(); menuUi(); });
       return b;
     }));
     if (document.activeElement !== $("cur-name")) $("cur-name").value = current.name;
@@ -812,7 +890,6 @@ body.locked main { opacity: .6; pointer-events: none; }
   var root = document.documentElement;
   var hosted = !!(window.claude && typeof window.claude.use === "function");
   var hostTheme = root.getAttribute("data-theme");
-  var metas = Array.prototype.map.call(document.querySelectorAll('meta[name="theme-color"]'), function (m) { return { el: m, auto: m.content }; });
   var themeBtns = Array.prototype.slice.call(document.querySelectorAll("[data-theme-choice]"));
   var menu = $("menu");
   var settings = { theme: "auto", scale: 100 };
@@ -828,7 +905,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     } else {
       root.setAttribute("data-theme", settings.theme);
     }
-    metas.forEach(function (m) { m.el.content = settings.theme === "auto" ? m.auto : settings.theme === "dark" ? "#131A16" : "#F3F6F0"; });
+    themeColor();
     root.style.fontSize = settings.scale + "%";
     themeBtns.forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.themeChoice === settings.theme)); });
     $("scale-value").textContent = settings.scale + " %";
@@ -981,6 +1058,7 @@ body.locked main { opacity: .6; pointer-events: none; }
   }
 
   loadCache();
+  applyTint();
   menuUi();
   render();
   sync(current);
