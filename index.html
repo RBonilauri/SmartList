@@ -61,7 +61,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: 17px;
+  font-size: 1.0625rem;
   line-height: 1.35;
   -webkit-text-size-adjust: 100%;
 }
@@ -77,10 +77,10 @@ header {
 .titles { flex: 1; min-width: 0; }
 h1 {
   font-family: var(--font-display);
-  font-size: 30px; font-weight: 700; letter-spacing: -0.02em;
+  font-size: 1.875rem; font-weight: 700; letter-spacing: -0.02em;
   margin: 0; line-height: 1.05;
 }
-.status { color: var(--muted); font-size: 13.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.status { color: var(--muted); font-size: .84rem; margin-top: 3px; font-variant-numeric: tabular-nums; }
 
 .icon-btn {
   width: 46px; height: 46px; flex: none;
@@ -130,7 +130,7 @@ h1 {
 
 h2 {
   font-family: var(--font-display);
-  font-size: 15px; font-weight: 600;
+  font-size: .94rem; font-weight: 600;
   text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted);
   margin: 22px 4px 8px;
@@ -171,6 +171,33 @@ ul:empty { display: none; }
 .del svg { width: 18px; height: 18px; }
 .del:hover { color: var(--danger); }
 
+dialog.menu {
+  width: min(560px, 100%); max-width: 100%;
+  margin: auto auto 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  border: 0; border-radius: 22px 22px 0 0;
+  background: var(--surface); color: var(--ink);
+  font-family: var(--font-body);
+}
+dialog.menu::backdrop { background: rgba(0, 0, 0, .45); }
+.menu-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.menu-head h3 { font-family: var(--font-display); font-size: 1.4rem; margin: 0; }
+.opt { padding: 14px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.opt-label { font-weight: 600; }
+.opt-note { color: var(--muted); font-size: .84rem; margin: 0; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.opt-row { display: flex; align-items: center; gap: 8px; }
+.opt-row .value { flex: 1; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.opt-btn {
+  font: inherit; font-weight: 600; color: var(--ink);
+  min-height: 48px; padding: 0 14px;
+  background: var(--bg); border: 1.5px solid var(--line); border-radius: 12px;
+  cursor: pointer;
+}
+.opt-btn.step { width: 64px; font-size: 1.4rem; line-height: 1; }
+.opt-btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.opt-btn:disabled { opacity: .4; cursor: default; }
+.opt-row .opt-btn.wide { flex: 1; }
+
 .hint { color: var(--muted); padding: 10px 4px; margin: 0; }
 .hint[hidden] { display: none; }
 .add-inline {
@@ -190,7 +217,7 @@ body.locked main { opacity: .6; pointer-events: none; }
   display: flex; align-items: center; gap: 14px;
   background: var(--ink); color: var(--bg);
   padding: 12px 16px; border-radius: 14px;
-  font-size: 15px;
+  font-size: .94rem;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .22);
 }
 .toast[hidden] { display: none; }
@@ -206,6 +233,9 @@ body.locked main { opacity: .6; pointer-events: none; }
 <div class="app">
   <header>
     <div class="bar">
+      <button class="icon-btn" id="btn-menu" type="button" aria-label="Ouvrir les options" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 7h15M4.5 12h15M4.5 17h15"></path></svg>
+      </button>
       <div class="titles">
         <h1>Courses</h1>
         <div class="status" id="status">Chargement…</div>
@@ -237,6 +267,41 @@ body.locked main { opacity: .6; pointer-events: none; }
     </section>
   </main>
 </div>
+
+<dialog class="menu" id="menu" aria-labelledby="menu-title">
+  <div class="menu-head">
+    <h3 id="menu-title">Options</h3>
+    <button class="icon-btn" id="menu-close" type="button" aria-label="Fermer les options">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </button>
+  </div>
+  <div class="opt">
+    <span class="opt-label" id="lbl-theme">Apparence</span>
+    <div class="seg" role="group" aria-labelledby="lbl-theme">
+      <button class="opt-btn" type="button" data-theme-choice="light">Jour</button>
+      <button class="opt-btn" type="button" data-theme-choice="dark">Nuit</button>
+      <button class="opt-btn" type="button" data-theme-choice="auto">Auto</button>
+    </div>
+    <p class="opt-note">Auto suit le réglage du téléphone.</p>
+  </div>
+  <div class="opt">
+    <span class="opt-label" id="lbl-scale">Taille du texte</span>
+    <div class="opt-row" role="group" aria-labelledby="lbl-scale">
+      <button class="opt-btn step" id="scale-down" type="button" aria-label="Réduire le texte de 10 %">−</button>
+      <span class="value" id="scale-value" aria-live="polite">100 %</span>
+      <button class="opt-btn step" id="scale-up" type="button" aria-label="Agrandir le texte de 10 %">+</button>
+    </div>
+  </div>
+  <div class="opt">
+    <span class="opt-label" id="lbl-data">Sauvegarde</span>
+    <div class="opt-row" role="group" aria-labelledby="lbl-data">
+      <button class="opt-btn wide" id="btn-export" type="button">Exporter</button>
+      <button class="opt-btn wide" id="btn-import" type="button">Importer</button>
+    </div>
+    <p class="opt-note">L'import fusionne : les ingrédients du fichier s'ajoutent à la liste, sans doublon.</p>
+    <input id="import-file" type="file" accept=".json,application/json,text/plain" hidden>
+  </div>
+</dialog>
 
 <button class="fab" id="btn-add" type="button" aria-label="Ajouter un ingrédient" aria-pressed="false">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
@@ -307,9 +372,10 @@ body.locked main { opacity: .6; pointer-events: none; }
   }
   function canEdit() { return mode === "sync" || mode === "local"; }
 
-  function create(name) {
-    if (mode === "sync") { var ref = col.doc(); dbWrite(ref.id, function () { return ref.set({ name: name, done: false }); }); }
-    else { items.set(newId(), { name: name, done: false }); saveCache(); render(); }
+  function create(name, done) {
+    done = !!done;
+    if (mode === "sync") { var ref = col.doc(); dbWrite(ref.id, function () { return ref.set({ name: name, done: done }); }); }
+    else { items.set(newId(), { name: name, done: done }); saveCache(); render(); }
   }
   function setDone(id, done) {
     if (mode === "sync") dbWrite(id, function () { return col.doc(id).update({ done: done }); });
@@ -352,11 +418,11 @@ body.locked main { opacity: .6; pointer-events: none; }
   function setMode(m) { mode = m; document.body.classList.toggle("locked", m === "pending"); render(); }
 
   function statusText(nTodo) {
+    if (mode === "pending") return stale ? "Liste injoignable pour l'instant" : "Chargement…";
     var n = nTodo === 0 ? "Rien à acheter" : nTodo + " à acheter";
-    if (mode === "pending") return stale ? "Liste injoignable pour l'instant" : "Connexion…";
-    var where = mode === "sync" ? (stale ? "peut ne pas être à jour" : "synchronisée")
-      : mode === "local" ? "enregistrée sur cet appareil" : "lecture seule";
-    return n + " · " + where;
+    if (mode === "readonly") return n + " · lecture seule";
+    if (stale) return n + " · peut ne pas être à jour";
+    return n;
   }
 
   function row(it) {
@@ -470,6 +536,113 @@ body.locked main { opacity: .6; pointer-events: none; }
     ul.addEventListener("click", onClick);
   });
 
+  /* ---------- options ---------- */
+  var SETTINGS_KEY = "courses-reglages-v1";
+  var root = document.documentElement;
+  var hosted = !!(window.claude && typeof window.claude.use === "function");
+  var hostTheme = root.getAttribute("data-theme");
+  var metas = Array.prototype.map.call(document.querySelectorAll('meta[name="theme-color"]'), function (m) { return { el: m, auto: m.content }; });
+  var themeBtns = Array.prototype.slice.call(document.querySelectorAll("[data-theme-choice]"));
+  var menu = $("menu");
+  var settings = { theme: "auto", scale: 100 };
+  try {
+    var st = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (st.theme === "light" || st.theme === "dark") settings.theme = st.theme;
+    if (typeof st.scale === "number") settings.scale = Math.min(160, Math.max(80, Math.round(st.scale / 10) * 10));
+  } catch (e) {}
+
+  function applySettings(save) {
+    if (settings.theme === "auto") {
+      if (hostTheme) root.setAttribute("data-theme", hostTheme); else root.removeAttribute("data-theme");
+    } else {
+      root.setAttribute("data-theme", settings.theme);
+    }
+    metas.forEach(function (m) { m.el.content = settings.theme === "auto" ? m.auto : settings.theme === "dark" ? "#131A16" : "#F3F6F0"; });
+    root.style.fontSize = settings.scale + "%";
+    themeBtns.forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.themeChoice === settings.theme)); });
+    $("scale-value").textContent = settings.scale + " %";
+    $("scale-down").disabled = settings.scale <= 80;
+    $("scale-up").disabled = settings.scale >= 160;
+    if (save) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
+  }
+  applySettings(false);
+
+  $("btn-menu").addEventListener("click", function () { if (menu.showModal) menu.showModal(); else menu.setAttribute("open", ""); });
+  function closeMenu() { if (menu.close) menu.close(); else menu.removeAttribute("open"); }
+  $("menu-close").addEventListener("click", closeMenu);
+  menu.addEventListener("click", function (e) { if (e.target === menu) closeMenu(); });
+  themeBtns.forEach(function (b) {
+    b.addEventListener("click", function () { settings.theme = b.dataset.themeChoice; applySettings(true); });
+  });
+  $("scale-down").addEventListener("click", function () { settings.scale = Math.max(80, settings.scale - 10); applySettings(true); });
+  $("scale-up").addEventListener("click", function () { settings.scale = Math.min(160, settings.scale + 10); applySettings(true); });
+
+  function download(text, fname) {
+    var url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    var a = document.createElement("a");
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast("Liste exportée : " + fname);
+  }
+  function exportList() {
+    var data = { app: "SmartList", version: 1, exportedAt: new Date().toISOString(), items: [] };
+    items.forEach(function (v) { data.items.push({ name: v.name, done: v.done }); });
+    data.items.sort(function (a, b) { return collator.compare(a.name, b.name); });
+    var text = JSON.stringify(data, null, 2);
+    var fname = "courses-" + new Date().toISOString().slice(0, 10) + ".json";
+    closeMenu();
+    if (hosted) {
+      // Dans Claude, une page ne peut pas déclencher de téléchargement : on copie.
+      navigator.clipboard.writeText(text).then(function () { toast("Liste copiée dans le presse-papiers"); })
+        .catch(function () { toast("Copie impossible depuis cette page."); });
+      return;
+    }
+    var file = null;
+    try { file = new File([text], fname, { type: "application/json" }); } catch (e) {}
+    var touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    if (touch && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: "Liste de courses" }).catch(function (e) {
+        if (!e || e.name !== "AbortError") download(text, fname);
+      });
+      return;
+    }
+    download(text, fname);
+  }
+  function importText(text) {
+    var data, bad = "Fichier illisible : ce n'est pas un export de liste.";
+    try { data = JSON.parse(text); } catch (e) { toast(bad); return; }
+    var arr = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : null);
+    if (!arr) { toast(bad); return; }
+    var byKey = new Map();
+    items.forEach(function (v, id) { byKey.set(norm(v.name), { id: id, done: v.done }); });
+    var seen = 0, added = 0;
+    arr.slice(0, 2000).forEach(function (x) {
+      var raw = typeof x === "string" ? x : (x && typeof x.name === "string" ? x.name : "");
+      var name = clean(raw);
+      if (!name) return;
+      var done = !!(x && x.done), k = norm(name), ex = byKey.get(k);
+      seen++;
+      if (!ex) { create(name, done); byKey.set(k, { id: null, done: done }); added++; }
+      else if (ex.id && ex.done !== done) setDone(ex.id, done);
+    });
+    if (!seen) toast("Aucun ingrédient dans ce fichier.");
+    else toast(seen + (seen === 1 ? " ingrédient importé" : " ingrédients importés") + ", dont " + added + (added === 1 ? " nouveau" : " nouveaux"));
+  }
+  $("btn-export").addEventListener("click", exportList);
+  $("btn-import").addEventListener("click", function () { if (canEdit()) $("import-file").click(); });
+  $("import-file").addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    closeMenu();
+    if (!f) return;
+    if (f.size > 1000000) { toast("Fichier trop volumineux pour une liste de courses."); return; }
+    var r = new FileReader();
+    r.onload = function () { importText(String(r.result)); };
+    r.onerror = function () { toast("Lecture du fichier impossible."); };
+    r.readAsText(f);
+  });
+
   /* ---------- démarrage ---------- */
   function startDb(db) {
     col = db.collection("items");
@@ -492,7 +665,7 @@ body.locked main { opacity: .6; pointer-events: none; }
 
   loadCache();
   render();
-  if (window.claude && typeof window.claude.use === "function") {
+  if (hosted) {
     window.claude.use("db").then(function (db) {
       if (db) startDb(db); else setMode("local");
     }).catch(function () { setMode("local"); });
