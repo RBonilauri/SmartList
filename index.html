@@ -406,7 +406,7 @@ body.locked main { opacity: .6; pointer-events: none; }
   /* ---------- listes et stockage local ---------- */
   function makeList(name, code) {
     return { id: newId(), name: name, code: code || null, items: new Map(), pending: new Map(),
-             pendingName: null, failed: false, lastSync: 0, syncing: false, again: false };
+             pendingName: null, failed: false, error: null, lastSync: 0, syncing: false, again: false };
   }
   function setCurrent(l) { current = l; items = l.items; }
   function fill(map, pairs) {
@@ -539,8 +539,12 @@ body.locked main { opacity: .6; pointer-events: none; }
       headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
+      if (r.ok) return r.json();
+      // Garde le motif du refus pour l'afficher dans le menu.
+      return r.text().then(function (t) {
+        var m = ""; try { m = JSON.parse(t).message || ""; } catch (e) {}
+        throw { status: r.status, message: String(m).slice(0, 160) };
+      });
     }).then(function (res) {
       var rows = Array.isArray(res) ? res : (res && Array.isArray(res.items) ? res.items : null);
       if (!rows || lists.indexOf(l) === -1) return;
@@ -549,10 +553,11 @@ body.locked main { opacity: .6; pointer-events: none; }
       if (sentName && l.pendingName === sentName) l.pendingName = null;
       if (!l.pendingName && res && typeof res.name === "string" && res.name.trim()) l.name = res.name.slice(0, 40);
       if (applyServer(l, rows)) l.again = true;
-      l.failed = false; l.lastSync = Date.now();
+      l.failed = false; l.error = null; l.lastSync = Date.now();
       if (snapshot(l) !== before) { if (l === current) render(); menuUi(); }
-    }).catch(function () {
+    }).catch(function (e) {
       l.failed = true;
+      l.error = e && e.status ? e : null;
     }).then(function () {
       l.syncing = false;
       saveCache();
@@ -619,7 +624,11 @@ body.locked main { opacity: .6; pointer-events: none; }
   function noteUi(msg) {
     var note = msg || "";
     if (!msg && current.code) {
-      note = current.failed ? "Hors ligne ou serveur injoignable. Vos modifications partiront dès que possible."
+      var er = current.error;
+      note = er && er.status === 404 ? "Le serveur n'est pas à jour (erreur 404) : exécutez supabase/schema.sql dans l'éditeur SQL de Supabase."
+        : er && (er.status === 401 || er.status === 403) ? "Clé refusée par le serveur (erreur " + er.status + ")."
+        : er ? "Refus du serveur (erreur " + er.status + ")" + (er.message ? " : " + er.message : ".")
+        : current.failed ? "Hors ligne ou serveur injoignable. Vos modifications partiront dès que possible."
         : current.lastSync ? "Synchronisé à " + new Date(current.lastSync).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) + "."
         : "Connexion au foyer…";
     }
@@ -682,7 +691,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     var n = nTodo === 0 ? "Rien à acheter" : nTodo + " à acheter";
     if (mode === "readonly") return n + " · lecture seule";
     if (stale) return n + " · peut ne pas être à jour";
-    if (current.code) return n + (current.failed ? " · partagée, hors ligne" : " · partagée");
+    if (current.code) return n + (current.error ? " · partagée, erreur serveur" : current.failed ? " · partagée, hors ligne" : " · partagée");
     return n;
   }
 
