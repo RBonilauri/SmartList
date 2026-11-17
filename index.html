@@ -172,6 +172,19 @@ h2 {
   display: flex; align-items: baseline; gap: 8px;
 }
 h2 .count { font-family: var(--font-body); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 22px 4px 8px; }
+.sec-head h2 { margin: 0; }
+.notify {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  min-height: 36px; padding: 0 14px 0 11px;
+  font: inherit; font-size: .84rem; font-weight: 600;
+  border: 0; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+  cursor: pointer;
+}
+.notify svg { width: 17px; height: 17px; }
+.notify:disabled { opacity: .45; cursor: default; box-shadow: none; }
 
 ul { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 ul:empty { display: none; }
@@ -340,7 +353,10 @@ body.locked main { opacity: .6; pointer-events: none; }
     <button class="add-inline" id="add-inline" type="button" hidden></button>
 
     <section aria-labelledby="h-todo">
-      <h2 id="h-todo">À acheter <span class="count" id="n-todo"></span></h2>
+      <div class="sec-head">
+        <h2 id="h-todo">À acheter <span class="count" id="n-todo"></span></h2>
+        <button class="notify" id="btn-notify" type="button" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"></path><path d="M10 20.5a2 2 0 0 0 4 0"></path></svg>Envoyer la liste</button>
+      </div>
       <ul id="list-todo"></ul>
     </section>
     <section aria-labelledby="h-done">
@@ -391,6 +407,12 @@ body.locked main { opacity: .6; pointer-events: none; }
     </div>
     <p class="opt-note" id="join-note" role="status"></p>
   </div>
+  <div class="opt" id="notif-opt" hidden>
+    <span class="opt-label">Notifications</span>
+    <p class="opt-note">« Envoyer la liste » notifie tous les téléphones d'une liste partagée. Chacun doit activer les notifications une fois pour les recevoir.</p>
+    <button class="opt-btn" id="notif-enable" type="button">Activer sur ce téléphone</button>
+    <p class="opt-note" id="notif-note" role="status"></p>
+  </div>
   <div class="opt">
     <span class="opt-label" id="lbl-theme">Apparence</span>
     <div class="seg" role="group" aria-labelledby="lbl-theme">
@@ -435,6 +457,8 @@ body.locked main { opacity: .6; pointer-events: none; }
   // qu'à la fonction sl_sync, qui exige le code du foyer. Laisser vide désactive le partage.
   var SB_URL = "https://mqamqogcjpjoimiyjgec.supabase.co";
   var SB_KEY = "sb_publishable_cPAAWorrX8bGc-_xazaf5w_QBYVjs0a";
+  // Clé publique VAPID des notifications push (la clé privée est un secret de la fonction sl-notify).
+  var VAPID_PUBLIC = "BGNORHr4jHjRO6n_kumOPN5XDugBYjiT7zCm88ha5UWlCqx7jcDE0LLib_cUNWtjVdj2OQkTpIrjG3IL0a3mflc";
   var STORE_KEY = "smartlist-v2";
   var CODE_RE = /^[a-z0-9-]{8,64}$/;
   // Dix couleurs de liste : teinte (h) et intensité (k) dans l'espace oklch.
@@ -450,7 +474,7 @@ body.locked main { opacity: .6; pointer-events: none; }
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     status: $("status"), panel: $("panel"), field: $("field"), submit: $("btn-submit"),
-    bSearch: $("btn-search"), bAdd: $("btn-add"), bAll: $("btn-all"), empty: $("empty"), addInline: $("add-inline"),
+    bSearch: $("btn-search"), bAdd: $("btn-add"), bAll: $("btn-all"), bNotify: $("btn-notify"), empty: $("empty"), addInline: $("add-inline"),
     todo: $("list-todo"), done: $("list-done"), nTodo: $("n-todo"), nDone: $("n-done"),
     toast: $("toast"), toastText: $("toast-text"), toastAction: $("toast-action")
   };
@@ -708,6 +732,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     l.pendingColor = l.color;
     saveCache(); render(); menuUi();
     sync(l);
+    refreshPush();
   }
   function removeCurrent() {
     var i = lists.indexOf(current);
@@ -716,11 +741,13 @@ body.locked main { opacity: .6; pointer-events: none; }
     setCurrent(lists[Math.max(0, i - 1)]);
     saveCache(); applyTint(); render(); menuUi();
     sync(current);
+    refreshPush();
   }
   function joinHouse(code) {
     var l = lists.filter(function (x) { return x.code === code; })[0];
     if (!l) { l = makeList("Foyer", code); lists.push(l); }
     switchTo(l);
+    refreshPush();
   }
 
   // Applique la couleur de la liste affichée à toute la page, barre d'état comprise.
@@ -792,6 +819,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     $("house").hidden = !houseOn;
     resetDelete();
     noteUi(msg);
+    notifUi();
   }
 
   function checkAll() {
@@ -871,6 +899,8 @@ body.locked main { opacity: .6; pointer-events: none; }
     $("title").textContent = current.name;
     els.status.textContent = statusText(totalTodo);
     els.bAll.disabled = totalTodo === 0 || !canEdit();
+    els.bNotify.hidden = !pushCapable;
+    els.bNotify.disabled = totalTodo === 0 || notifyBusy;
 
     var msg = "";
     if (items.size === 0 && mode !== "pending") msg = "La liste est vide. Touchez + pour ajouter un premier ingrédient.";
@@ -1183,6 +1213,157 @@ body.locked main { opacity: .6; pointer-events: none; }
   document.addEventListener("visibilitychange", syncVisible);
   window.addEventListener("online", syncVisible);
 
+  /* ---------- notifications ---------- */
+  var pushCapable = !(window.claude && typeof window.claude.use === "function") &&
+    "serviceWorker" in navigator && /^https?:$/.test(location.protocol);
+  var notifyBusy = false, pushTimer = 0, MAX_LINES = 25;
+  var isIos = /iP(hone|ad|od)/.test(navigator.userAgent);
+
+  function pushSupported() { return pushCapable && "Notification" in window && "PushManager" in window; }
+  function swReady() {
+    return Promise.race([navigator.serviceWorker.ready, new Promise(function (_, no) {
+      setTimeout(function () { no(new Error("sw")); }, 8000);
+    })]);
+  }
+  function keyBytes(b64u) {
+    var b = atob((b64u + "===".slice((b64u.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+    var out = new Uint8Array(b.length);
+    for (var i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+    return out;
+  }
+  function sharedCodes() { return lists.filter(function (l) { return l.code; }).map(function (l) { return l.code; }); }
+
+  // Même mise en forme que la fonction sl-notify, côté serveur.
+  function formatNotif(name, names) {
+    var sorted = names.slice().sort(collator.compare), n = sorted.length;
+    var lines = sorted.slice(0, MAX_LINES).map(function (x) { return "• " + x; });
+    if (n > MAX_LINES) lines.push("… et " + (n - MAX_LINES) + " autre" + (n - MAX_LINES > 1 ? "s" : ""));
+    return { title: "🛒 " + name + " · " + (n ? n + " à acheter" : "rien à acheter"), body: n ? lines.join("\n") : "Tout est dans le panier." };
+  }
+  function todoNames(l) { var a = []; l.items.forEach(function (v) { if (!v.done) a.push(v.name); }); return a; }
+
+  // Inscrit ce téléphone pour les listes partagées qu'il contient.
+  function registerPush(sub) {
+    var j = sub.toJSON();
+    return fetch(SB_URL + "/rest/v1/rpc/sl_push_register", {
+      method: "POST",
+      headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_codes: sharedCodes() })
+    }).then(function (r) { if (!r.ok) throw new Error("register " + r.status); });
+  }
+  function subscription(reg) {
+    return reg.pushManager.getSubscription().then(function (sub) {
+      return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC) });
+    });
+  }
+  // Demande l'autorisation : à appeler depuis un appui de l'utilisateur.
+  function enablePush() {
+    if (!pushSupported()) return Promise.reject(new Error("unsupported"));
+    return Promise.resolve(Notification.requestPermission()).then(function (p) {
+      if (p !== "granted") throw new Error("denied");
+      return swReady();
+    }).then(subscription).then(function (sub) { return houseOn ? registerPush(sub) : null; });
+  }
+  // Tient à jour les listes suivies (rejoindre, partager, quitter), sans rien demander.
+  function refreshPush() {
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(function () {
+      if (!pushSupported() || Notification.permission !== "granted" || !houseOn) return;
+      swReady().then(subscription).then(registerPush).catch(function () {});
+    }, 300);
+  }
+  // Attend que les modifications en attente soient envoyées, pour notifier la liste à jour.
+  function flush(l) {
+    return new Promise(function (resolve, reject) {
+      var t0 = Date.now();
+      sync(l);
+      (function check() {
+        if (!l.syncing && l.failed) return reject(new Error("offline"));
+        if (!l.syncing && !l.pending.size && !l.pendingName && !l.pendingColor) return resolve();
+        if (Date.now() - t0 > 8000) return reject(new Error("offline"));
+        setTimeout(check, 150);
+      })();
+    });
+  }
+  function pushError(e) {
+    var m = e && e.message;
+    toast(m === "unsupported" ? (isIos ? "Sur iPhone, installe l'appli sur l'écran d'accueil pour les notifications." : "Ce navigateur ne gère pas les notifications.")
+      : m === "denied" ? "Notifications bloquées : autorise-les dans les réglages du téléphone."
+      : m === "offline" ? "Hors ligne : la liste n'a pas pu être envoyée."
+      : "Envoi impossible. Vérifie la connexion et réessaie.");
+  }
+  function sendList() {
+    if (notifyBusy) return;
+    var l = current;
+    notifyBusy = true; els.bNotify.disabled = true;
+    var job = enablePush();
+    if (!l.code) {
+      // Liste locale : la notification n'est que pour ce téléphone.
+      job = job.then(swReady).then(function (reg) {
+        var m = formatNotif(l.name, todoNames(l));
+        return reg.showNotification(m.title, { body: m.body, icon: "icons/icon-192.png", badge: "icons/badge-96.png",
+          tag: "smartlist-" + l.id, renotify: true, lang: "fr", data: { url: "./?local=" + l.id } });
+      }).then(function () { toast("Notification envoyée sur ce téléphone"); });
+    } else {
+      job = job.then(function () { return flush(l); }).then(function () {
+        return fetch(SB_URL + "/functions/v1/sl-notify", {
+          method: "POST",
+          headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ code: l.code })
+        });
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          if (r.ok) {
+            toast(!b.sent ? "Personne n'a reçu la liste : chacun doit activer les notifications."
+              : "Liste envoyée à " + b.sent + " téléphone" + (b.sent > 1 ? "s" : ""));
+          } else if (r.status === 429) {
+            toast("Liste déjà envoyée il y a un instant. Réessaie dans " + (b.retry_after || 20) + " s.");
+          } else if (r.status === 401) {
+            toast("Supabase refuse l'appel : désactive la vérification JWT de la fonction sl-notify.");
+          } else if (r.status === 404) {
+            toast("La fonction sl-notify n'est pas encore déployée sur Supabase.");
+          } else {
+            toast("Envoi impossible (erreur " + r.status + ")" + (b.message ? " : " + b.message : ""));
+          }
+        });
+      });
+    }
+    job.catch(pushError).then(function () {
+      setTimeout(function () { notifyBusy = false; render(); }, 1500);
+    });
+  }
+  function notifUi(msg) {
+    var box = $("notif-opt"), btn = $("notif-enable"), note = $("notif-note");
+    box.hidden = !pushCapable;
+    if (!pushCapable) return;
+    var perm = pushSupported() ? Notification.permission : "unsupported";
+    btn.hidden = perm === "unsupported" || perm === "denied";
+    btn.disabled = perm === "granted";
+    btn.textContent = perm === "granted" ? "Activées sur ce téléphone" : "Activer sur ce téléphone";
+    note.textContent = msg || (perm === "unsupported" ? (isIos ? "Sur iPhone, les notifications ne marchent qu'une fois l'appli ajoutée à l'écran d'accueil, puis ouverte depuis son icône." : "Ce navigateur ne gère pas les notifications.")
+      : perm === "denied" ? "Bloquées : autorise-les dans les réglages du téléphone (notifications du site ou de l'appli)."
+      : "");
+  }
+  function openFromUrl(href) {
+    try {
+      var u = new URL(href, location.href), code = u.searchParams.get("list"), id = u.searchParams.get("local");
+      var l = lists.filter(function (x) { return (code && x.code === code) || (id && x.id === id); })[0];
+      if (l && l !== current) switchTo(l);
+    } catch (e) {}
+  }
+
+  els.bNotify.addEventListener("click", sendList);
+  $("notif-enable").addEventListener("click", function () {
+    enablePush().then(function () { notifUi("Notifications activées."); }).catch(function (e) {
+      notifUi(e && e.message === "denied" ? "" : "Activation impossible. Vérifie la connexion et réessaie.");
+    });
+  });
+  if (pushCapable) {
+    navigator.serviceWorker.addEventListener("message", function (e) {
+      if (e.data && e.data.type === "open-list") openFromUrl(e.data.url);
+    });
+  }
+
   /* ---------- démarrage ---------- */
   function startDb(db) {
     col = db.collection("items");
@@ -1204,10 +1385,19 @@ body.locked main { opacity: .6; pointer-events: none; }
   }
 
   loadCache();
+  if (/[?&](list|local)=/.test(location.search)) {
+    var start = location.href;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    lists.forEach(function (l) {
+      var u = new URL(start);
+      if ((l.code && l.code === u.searchParams.get("list")) || l.id === u.searchParams.get("local")) setCurrent(l);
+    });
+  }
   applyTint();
   menuUi();
   render();
   sync(current);
+  refreshPush();
   if (hosted) {
     window.claude.use("db").then(function (db) {
       if (db) startDb(db); else setMode("local");
