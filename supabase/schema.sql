@@ -120,15 +120,19 @@ create table if not exists public.sl_push_subs (
   primary key (code, endpoint)
 );
 
+alter table public.sl_push_subs add column if not exists label text check (char_length(label) <= 30);
+
 alter table public.sl_push_subs enable row level security;
 revoke all on public.sl_push_subs from anon, authenticated;
 
--- Appelée par l'appli : ce téléphone veut être notifié pour exactement ces listes.
+-- Appelée par l'appli : ce téléphone (nommé p_label) veut être notifié pour exactement ces listes.
+drop function if exists public.sl_push_register(text, text, text, text[]);
 create or replace function public.sl_push_register(
   p_endpoint text,
   p_p256dh   text,
   p_auth     text,
-  p_codes    text[]
+  p_codes    text[],
+  p_label    text default null
 ) returns integer
 language plpgsql
 security definer
@@ -155,10 +159,12 @@ begin
 
   delete from sl_push_subs where endpoint = p_endpoint and not (code = any (p_codes));
 
-  insert into sl_push_subs (code, endpoint, p256dh, auth)
-  select distinct x, p_endpoint, p_p256dh, p_auth from unnest(p_codes) as x
+  p_label := nullif(left(btrim(coalesce(p_label, '')), 30), '');
+
+  insert into sl_push_subs (code, endpoint, p256dh, auth, label)
+  select distinct x, p_endpoint, p_p256dh, p_auth, p_label from unnest(p_codes) as x
   on conflict (code, endpoint) do update
-     set p256dh = excluded.p256dh, auth = excluded.auth, updated_at = now();
+     set p256dh = excluded.p256dh, auth = excluded.auth, label = excluded.label, updated_at = now();
 
   if exists (select 1 from sl_push_subs where code = any (p_codes) group by code having count(*) > 50) then
     raise exception 'trop de téléphones abonnés à cette liste';
@@ -167,8 +173,34 @@ begin
 end;
 $$;
 
-revoke all on function public.sl_push_register(text, text, text, text[]) from public;
-grant execute on function public.sl_push_register(text, text, text, text[]) to anon, authenticated;
+revoke all on function public.sl_push_register(text, text, text, text[], text) from public;
+grant execute on function public.sl_push_register(text, text, text, text[], text) to anon, authenticated;
+
+-- Identifiant court et stable d'un téléphone, sans révéler son adresse push.
+create or replace function public.sl_push_id(p_endpoint text)
+returns text
+language sql
+immutable
+as $$ select left(encode(sha256(convert_to(p_endpoint, 'UTF8')), 'hex'), 16) $$;
+
+-- Appelée par l'appli : les téléphones d'une liste qui peuvent recevoir une notification.
+create or replace function public.sl_push_members(p_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_code is null or p_code !~ '^[a-z0-9-]{8,64}$' then
+    raise exception 'code de foyer invalide';
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('id', sl_push_id(endpoint), 'label', label) order by label nulls last)
+                     from sl_push_subs where code = p_code), '[]'::jsonb);
+end;
+$$;
+
+revoke all on function public.sl_push_members(text) from public;
+grant execute on function public.sl_push_members(text) to anon, authenticated;
 
 -- Appelée par la fonction sl-notify uniquement : limite à un envoi toutes les
 -- 20 secondes par liste, puis renvoie le nom, les ingrédients à acheter et les abonnés.
@@ -203,7 +235,7 @@ begin
     'allowed', true,
     'name',  (select name from sl_households where code = p_code),
     'items', coalesce((select jsonb_agg(name) from sl_items where household = p_code and not done), '[]'::jsonb),
-    'subs',  coalesce((select jsonb_agg(jsonb_build_object('endpoint', endpoint,
+    'subs',  coalesce((select jsonb_agg(jsonb_build_object('id', sl_push_id(endpoint), 'endpoint', endpoint,
                                                            'keys', jsonb_build_object('p256dh', p256dh, 'auth', auth)))
                          from sl_push_subs where code = p_code), '[]'::jsonb)
   );

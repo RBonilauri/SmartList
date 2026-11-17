@@ -9,7 +9,7 @@ Liste de courses en un seul fichier HTML, installable sur téléphone (PWA) et u
 - Plusieurs listes (menu burger → Mes listes) : locales ou partagées, renommables.
 - Partage facultatif par code de foyer : les téléphones qui saisissent le même code voient la même liste (actualisée toutes les 5 secondes, modifications hors ligne envoyées au retour du réseau).
 
-- Bouton « Envoyer la liste » : notification push avec les ingrédients à acheter, envoyée à tous les téléphones d'une liste partagée (ou à ce téléphone pour une liste locale).
+- Bouton « Envoyer la liste » : notification push avec les ingrédients à acheter. Pour une liste partagée, une fenêtre montre l'aperçu, permet d'ajouter un petit mot et de choisir les destinataires (chaque téléphone a un prénom). Pour une liste locale, la notification s'affiche sur ce téléphone.
 
 ## Partage par foyer (Supabase)
 

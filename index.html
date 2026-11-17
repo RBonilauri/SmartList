@@ -185,6 +185,40 @@ h2 .count { font-family: var(--font-body); font-variant-numeric: tabular-nums; l
 }
 .notify svg { width: 17px; height: 17px; }
 .notify:disabled { opacity: .45; cursor: default; box-shadow: none; }
+.preview {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 12px; border-radius: 14px;
+  background: var(--bg); border: 1px solid var(--line);
+}
+.preview img { width: 32px; height: 32px; border-radius: 8px; flex: none; }
+.preview .pv-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: .9rem; line-height: 1.35; }
+.preview .pv-title { font-weight: 600; overflow-wrap: anywhere; }
+.preview .pv-body { white-space: pre-line; color: var(--muted); overflow-wrap: anywhere; }
+.preview .pv-note { color: var(--ink); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 0 14px 0 6px;
+  font: inherit; font-size: .94rem; font-weight: 500; color: var(--ink);
+  background: var(--bg); border: 1.5px solid var(--line); border-radius: 999px;
+  cursor: pointer;
+}
+.chip .av {
+  width: 28px; height: 28px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  font-size: .8rem; font-weight: 600;
+  background: var(--line); color: var(--ink);
+}
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip[aria-pressed="true"] .av { background: var(--accent-ink); color: var(--accent); }
+.send-go {
+  width: 100%; min-height: 50px;
+  font: inherit; font-weight: 600;
+  border: 0; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); cursor: pointer;
+}
+.send-go:disabled { opacity: .45; cursor: default; }
+#send-sheet .opt { gap: 10px; }
 
 ul { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 ul:empty { display: none; }
@@ -411,6 +445,10 @@ body.locked main { opacity: .6; pointer-events: none; }
     <span class="opt-label">Notifications</span>
     <p class="opt-note">« Envoyer la liste » notifie tous les téléphones d'une liste partagée. Chacun doit activer les notifications une fois pour les recevoir.</p>
     <button class="opt-btn" id="notif-enable" type="button">Activer sur ce téléphone</button>
+    <div class="opt-row" id="notif-name-row" hidden>
+      <input class="opt-input" id="notif-name" type="text" placeholder="Ton prénom" aria-label="Prénom affiché aux autres" autocomplete="given-name" maxlength="30">
+      <button class="opt-btn" id="notif-name-save" type="button">Enregistrer</button>
+    </div>
     <p class="opt-note" id="notif-note" role="status"></p>
   </div>
   <div class="opt">
@@ -438,6 +476,43 @@ body.locked main { opacity: .6; pointer-events: none; }
     </div>
     <p class="opt-note">L'import fusionne : les ingrédients du fichier s'ajoutent à la liste, sans doublon.</p>
     <input id="import-file" type="file" accept=".json,application/json,text/plain" hidden>
+  </div>
+</dialog>
+
+<dialog class="menu" id="send-sheet" aria-labelledby="send-title">
+  <div class="menu-head">
+    <h3 id="send-title">Envoyer la liste</h3>
+    <button class="icon-btn" id="send-close" type="button" aria-label="Fermer sans envoyer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </button>
+  </div>
+  <div class="opt" id="send-name" hidden>
+    <span class="opt-label">Ton prénom</span>
+    <p class="opt-note">Il s'affiche chez les autres pour qu'ils sachent qui envoie la liste. Il ne sera demandé qu'une fois.</p>
+    <div class="opt-row">
+      <input class="opt-input" id="send-name-input" type="text" placeholder="Raf" aria-label="Ton prénom" autocomplete="given-name" maxlength="30">
+      <button class="opt-btn" id="send-name-ok" type="button">Continuer</button>
+    </div>
+  </div>
+  <div id="send-main">
+    <div class="opt">
+      <span class="opt-label">Aperçu</span>
+      <div class="preview" aria-live="polite">
+        <img src="icons/icon-192.png" alt="">
+        <div class="pv-text">
+          <span class="pv-title" id="pv-title"></span>
+          <span class="pv-body pv-note" id="pv-note" hidden></span>
+          <span class="pv-body" id="pv-body"></span>
+        </div>
+      </div>
+      <input class="opt-input" id="send-note" type="text" placeholder="Ajouter un mot (facultatif)" aria-label="Petit mot ajouté à la notification" autocomplete="off" maxlength="120" enterkeyhint="done">
+    </div>
+    <div class="opt">
+      <span class="opt-label" id="lbl-to">Destinataires</span>
+      <div class="chips" id="send-to" role="group" aria-labelledby="lbl-to"></div>
+      <p class="opt-note" id="send-msg" role="status"></p>
+      <button class="send-go" id="send-go" type="button">Envoyer</button>
+    </div>
   </div>
 </dialog>
 
@@ -1234,11 +1309,25 @@ body.locked main { opacity: .6; pointer-events: none; }
   function sharedCodes() { return lists.filter(function (l) { return l.code; }).map(function (l) { return l.code; }); }
 
   // Même mise en forme que la fonction sl-notify, côté serveur.
-  function formatNotif(name, names) {
+  function noteLine(note, from) { return note ? "💬 " + (from ? from + " : " : "") + note : ""; }
+  function formatNotif(name, names, note, from) {
     var sorted = names.slice().sort(collator.compare), n = sorted.length;
     var lines = sorted.slice(0, MAX_LINES).map(function (x) { return "• " + x; });
     if (n > MAX_LINES) lines.push("… et " + (n - MAX_LINES) + " autre" + (n - MAX_LINES > 1 ? "s" : ""));
-    return { title: "🛒 " + name + " · " + (n ? n + " à acheter" : "rien à acheter"), body: n ? lines.join("\n") : "Tout est dans le panier." };
+    return { title: "🛒 " + name + " · " + (n ? n + " à acheter" : "rien à acheter"),
+             note: noteLine(note, from), list: n ? lines.join("\n") : "Tout est dans le panier.",
+             body: [noteLine(note, from), n ? lines.join("\n") : "Tout est dans le panier."].filter(Boolean).join("\n") };
+  }
+  var DEVICE_KEY = "smartlist-appareil-v1", deviceName = "";
+  try { deviceName = (localStorage.getItem(DEVICE_KEY) || "").slice(0, 30); } catch (e) {}
+  function setDeviceName(n) {
+    deviceName = cleanName(n).slice(0, 30);
+    try { localStorage.setItem(DEVICE_KEY, deviceName); } catch (e) {}
+  }
+  function hashId(s) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)).then(function (b) {
+      return Array.prototype.map.call(new Uint8Array(b), function (x) { return (x < 16 ? "0" : "") + x.toString(16); }).join("").slice(0, 16);
+    });
   }
   function todoNames(l) { var a = []; l.items.forEach(function (v) { if (!v.done) a.push(v.name); }); return a; }
 
@@ -1248,7 +1337,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     return fetch(SB_URL + "/rest/v1/rpc/sl_push_register", {
       method: "POST",
       headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_codes: sharedCodes() })
+      body: JSON.stringify({ p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_codes: sharedCodes(), p_label: deviceName || null })
     }).then(function (r) { if (!r.ok) throw new Error("register " + r.status); });
   }
   function subscription(reg) {
@@ -1292,46 +1381,147 @@ body.locked main { opacity: .6; pointer-events: none; }
       : m === "offline" ? "Hors ligne : la liste n'a pas pu être envoyée."
       : "Envoi impossible. Vérifie la connexion et réessaie.");
   }
-  function sendList() {
-    if (notifyBusy) return;
-    var l = current;
-    notifyBusy = true; els.bNotify.disabled = true;
-    var job = enablePush();
-    if (!l.code) {
-      // Liste locale : la notification n'est que pour ce téléphone.
-      job = job.then(swReady).then(function (reg) {
-        var m = formatNotif(l.name, todoNames(l));
-        return reg.showNotification(m.title, { body: m.body, icon: "icons/icon-192.png", badge: "icons/badge-96.png",
-          tag: "smartlist-" + l.id, renotify: true, lang: "fr", data: { url: "./?local=" + l.id } });
-      }).then(function () { toast("Notification envoyée sur ce téléphone"); });
-    } else {
-      job = job.then(function () { return flush(l); }).then(function () {
-        return fetch(SB_URL + "/functions/v1/sl-notify", {
-          method: "POST",
-          headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ code: l.code })
-        });
-      }).then(function (r) {
-        return r.json().catch(function () { return {}; }).then(function (b) {
-          if (r.ok) {
-            toast(!b.sent ? "Personne n'a reçu la liste : chacun doit activer les notifications."
-              : "Liste envoyée à " + b.sent + " téléphone" + (b.sent > 1 ? "s" : ""));
-          } else if (r.status === 429) {
-            toast("Liste déjà envoyée il y a un instant. Réessaie dans " + (b.retry_after || 20) + " s.");
-          } else if (r.status === 401) {
-            toast("Supabase refuse l'appel : désactive la vérification JWT de la fonction sl-notify.");
-          } else if (r.status === 404) {
-            toast("La fonction sl-notify n'est pas encore déployée sur Supabase.");
-          } else {
-            toast("Envoi impossible (erreur " + r.status + ")" + (b.message ? " : " + b.message : ""));
-          }
-        });
-      });
-    }
-    job.catch(pushError).then(function () {
-      setTimeout(function () { notifyBusy = false; render(); }, 1500);
+  function rpcPost(path, body) {
+    return fetch(SB_URL + path, {
+      method: "POST",
+      headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
     });
   }
+  function notifyLocal(l) {
+    return swReady().then(function (reg) {
+      var m = formatNotif(l.name, todoNames(l));
+      return reg.showNotification(m.title, { body: m.body, icon: "icons/icon-192.png", badge: "icons/badge-96.png",
+        tag: "smartlist-" + l.id, renotify: true, lang: "fr", data: { url: "./?local=" + l.id } });
+    }).then(function () { toast("Notification envoyée sur ce téléphone"); });
+  }
+  function release() { setTimeout(function () { notifyBusy = false; render(); }, 800); }
+
+  /* Popup d'envoi : aperçu, petit mot, destinataires. */
+  var sheet = $("send-sheet"), members = [], picked = new Set(), myId = "", sendList_ = null;
+  function closeSheet() { if (sheet.close) sheet.close(); else sheet.removeAttribute("open"); }
+  function previewUi() {
+    var m = formatNotif(sendList_.name, todoNames(sendList_), cleanNote(), deviceName);
+    $("pv-title").textContent = m.title;
+    $("pv-note").textContent = m.note; $("pv-note").hidden = !m.note;
+    var lines = m.list.split("\n");
+    $("pv-body").textContent = lines.length > 4 ? lines.slice(0, 3).join("\n") + "\n… et " + (lines.length - 3) + " de plus" : m.list;
+  }
+  function cleanNote() { return $("send-note").value.replace(/\s+/g, " ").trim().slice(0, 120); }
+  function goUi() {
+    var go = $("send-go"), names = members.filter(function (p) { return picked.has(p.id); }).map(function (p) { return p.id === myId ? "moi" : p.label || "un téléphone"; });
+    go.disabled = !names.length;
+    go.textContent = !names.length ? "Choisis un destinataire" : names.length === 1 ? "Envoyer à " + names[0] : "Envoyer à " + names.length + " personnes";
+  }
+  function chipsUi() {
+    var box = $("send-to");
+    box.replaceChildren.apply(box, members.map(function (p) {
+      var b = document.createElement("button"), label = p.id === myId ? "Moi" : p.label || "Téléphone sans nom";
+      b.type = "button"; b.className = "chip";
+      b.setAttribute("aria-pressed", String(picked.has(p.id)));
+      var av = document.createElement("span");
+      av.className = "av"; av.setAttribute("aria-hidden", "true");
+      av.textContent = label.charAt(0).toUpperCase();
+      b.append(av, document.createTextNode(label));
+      b.addEventListener("click", function () {
+        if (picked.has(p.id)) picked.delete(p.id); else picked.add(p.id);
+        chipsUi(); goUi();
+      });
+      return b;
+    }));
+    goUi();
+  }
+  function loadMembers() {
+    var l = sendList_;
+    members = []; picked.clear(); chipsUi();
+    $("send-msg").textContent = "Recherche des téléphones de la liste…";
+    swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+      return sub ? hashId(sub.endpoint) : "";
+    }).then(function (id) {
+      myId = id;
+      return rpcPost("/rest/v1/rpc/sl_push_members", { p_code: l.code });
+    }).then(function (r) {
+      if (!r.ok) throw new Error("members " + r.status);
+      return r.json();
+    }).then(function (list) {
+      if (sendList_ !== l) return;
+      members = (Array.isArray(list) ? list : []).filter(function (p) { return p && /^[0-9a-f]{16}$/.test(p.id); });
+      // Moi en dernier ; par défaut, la liste part à tous les autres.
+      members.sort(function (a, b) { return (a.id === myId) - (b.id === myId); });
+      members.forEach(function (p) { if (p.id !== myId) picked.add(p.id); });
+      var others = members.filter(function (p) { return p.id !== myId; }).length;
+      $("send-msg").textContent = others ? "" : "Personne d'autre n'a encore activé les notifications sur cette liste. Chacun doit le faire une fois dans le menu.";
+      chipsUi();
+    }).catch(function () {
+      $("send-msg").textContent = "Impossible de charger les destinataires. Vérifie la connexion.";
+    });
+  }
+  function showSheetStep() {
+    $("send-name").hidden = !!deviceName;
+    $("send-main").hidden = !deviceName;
+    if (deviceName) { previewUi(); loadMembers(); }
+  }
+  function openSend() {
+    if (notifyBusy) return;
+    var l = current;
+    if (!pushSupported()) { pushError(new Error("unsupported")); return; }
+    notifyBusy = true; els.bNotify.disabled = true;
+    var job = enablePush();
+    if (!l.code) { job.then(function () { return notifyLocal(l); }).catch(pushError).then(release); return; }
+    job.then(function () {
+      sendList_ = l;
+      $("send-note").value = "";
+      $("send-name-input").value = "";
+      showSheetStep();
+      if (sheet.showModal) sheet.showModal(); else sheet.setAttribute("open", "");
+      if (!deviceName) $("send-name-input").focus();
+    }).catch(pushError).then(release);
+  }
+  function sendNow() {
+    var l = sendList_, to = Array.from(picked), note = cleanNote(), go = $("send-go");
+    if (!l || !to.length || go.disabled) return;
+    go.disabled = true; go.textContent = "Envoi…";
+    flush(l).then(function () {
+      return rpcPost("/functions/v1/sl-notify", { code: l.code, to: to, note: note, from: deviceName });
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (b) {
+        if (r.ok) {
+          closeSheet();
+          toast(!b.sent ? "La notification n'a pas pu être remise. Réessaie plus tard."
+            : "Liste envoyée" + (b.sent < to.length ? " à " + b.sent + " téléphone" + (b.sent > 1 ? "s" : "") + " sur " + to.length : ""));
+          return;
+        }
+        $("send-msg").textContent = r.status === 429 ? "Liste déjà envoyée il y a un instant. Réessaie dans " + (b.retry_after || 20) + " s."
+          : r.status === 401 ? "Supabase refuse l'appel : désactive la vérification JWT de la fonction sl-notify."
+          : r.status === 404 ? "La fonction sl-notify n'est pas déployée sur Supabase."
+          : "Envoi impossible (erreur " + r.status + ")" + (b.message ? " : " + b.message : ".");
+      });
+    }).catch(function (e) {
+      $("send-msg").textContent = e && e.message === "offline" ? "Hors ligne : la liste n'a pas pu être envoyée." : "Envoi impossible. Vérifie la connexion et réessaie.";
+    }).then(goUi);
+  }
+  $("send-close").addEventListener("click", closeSheet);
+  sheet.addEventListener("click", function (e) { if (e.target === sheet) closeSheet(); });
+  $("send-note").addEventListener("input", previewUi);
+  $("send-note").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+  $("send-go").addEventListener("click", sendNow);
+  function saveNameFrom(input) {
+    var n = cleanName(input.value);
+    if (!n) { input.focus(); return false; }
+    setDeviceName(n);
+    refreshPush();
+    return true;
+  }
+  $("send-name-ok").addEventListener("click", function () {
+    if (!saveNameFrom($("send-name-input"))) return;
+    // Le prénom doit être enregistré avant de charger les destinataires.
+    swReady().then(subscription).then(registerPush).catch(function () {}).then(showSheetStep);
+  });
+  $("send-name-input").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("send-name-ok").click(); } });
+  $("notif-name-save").addEventListener("click", function () {
+    if (saveNameFrom($("notif-name"))) notifUi("Prénom enregistré.");
+  });
+
   function notifUi(msg) {
     var box = $("notif-opt"), btn = $("notif-enable"), note = $("notif-note");
     box.hidden = !pushCapable;
@@ -1340,6 +1530,8 @@ body.locked main { opacity: .6; pointer-events: none; }
     btn.hidden = perm === "unsupported" || perm === "denied";
     btn.disabled = perm === "granted";
     btn.textContent = perm === "granted" ? "Activées sur ce téléphone" : "Activer sur ce téléphone";
+    $("notif-name-row").hidden = perm !== "granted";
+    if (document.activeElement !== $("notif-name")) $("notif-name").value = deviceName;
     note.textContent = msg || (perm === "unsupported" ? (isIos ? "Sur iPhone, les notifications ne marchent qu'une fois l'appli ajoutée à l'écran d'accueil, puis ouverte depuis son icône." : "Ce navigateur ne gère pas les notifications.")
       : perm === "denied" ? "Bloquées : autorise-les dans les réglages du téléphone (notifications du site ou de l'appli)."
       : "");
@@ -1352,7 +1544,7 @@ body.locked main { opacity: .6; pointer-events: none; }
     } catch (e) {}
   }
 
-  els.bNotify.addEventListener("click", sendList);
+  els.bNotify.addEventListener("click", openSend);
   $("notif-enable").addEventListener("click", function () {
     enablePush().then(function () { notifUi("Notifications activées."); }).catch(function (e) {
       notifUi(e && e.message === "denied" ? "" : "Activation impossible. Vérifie la connexion et réessaie.");
